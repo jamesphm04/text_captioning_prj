@@ -1,7 +1,18 @@
 from tensorflow.keras.utils import Sequence
 import numpy as np
 import tensorflow as tf
- 
+
+def padding_mask(decoder_input, pad_seq_id=1): 
+    mask = tf.math.equal(decoder_input, pad_seq_id)
+    #convert 0 -> False, 1 -> True
+    mask = tf.cast(mask, tf.int64)
+    # add 1 dimension for batch
+    mask = tf.expand_dims(mask, axis=0) # (1, seq_len)
+    return mask
+
+def look_ahead_mask(seq_len):
+    mask = 1 - tf.linalg.band_part(tf.ones((seq_len, seq_len)), -1, 0)
+    return tf.cast(mask, tf.int64) # (seq_len, seq_len)
 class ImageCaptionGenerator(Sequence):
     def __init__(self, df, X_col, y_col, batch_size, tokenizer, 
                  max_length, features,shuffle=True):
@@ -33,19 +44,20 @@ class ImageCaptionGenerator(Sequence):
         return dataloaded
     
     def __get_data(self,batch): # Generate data containing batch_size samples
-        
-        encoder_input = tf.zeros((1, 1920), dtype=tf.float32) # could be float32
-        decoder_input = tf.zeros((1, self.max_length), dtype=tf.int64)
+        encoder_output = []
+        decoder_input = []
+        decoder_mask = []
         
         images = batch[self.X_col].tolist()
            
         for image in images:
             feature = self.features[image][0]
+            sub_decoder_mask = []
+            
             
             captions = batch.loc[batch[self.X_col]==image, self.y_col].tolist()
             for caption in captions:
-                print(caption)
-                enc_input = tf.constant([feature], dtype=tf.float32)
+                enc_out = tf.constant([feature], dtype=tf.float32)
                 dec_input = tf.constant(self.tokenizer.encode(caption).ids, dtype=tf.int64)
                 
                 dec_num_padding_tokens = self.max_length - dec_input.shape[0]
@@ -54,12 +66,24 @@ class ImageCaptionGenerator(Sequence):
                 
                 dec_input = tf.expand_dims(dec_input, axis=0)
                 
-                print(f'decoder_input: {decoder_input.shape}, dec_input: {dec_input.shape}')
+                dec_padding_mask = padding_mask(dec_input, self.pad_seq_id)
+                dec_lookahead_mask = look_ahead_mask(self.max_length)
+                dec_mask = tf.maximum(dec_padding_mask, dec_lookahead_mask)
                 
-                encoder_input = tf.concat([encoder_input, enc_input], axis=0)
-                decoder_input = tf.concat([decoder_input, dec_input], axis=0)
-                
+                encoder_output.append(enc_out)
+                decoder_input.append(dec_input)
+                sub_decoder_mask.append(dec_mask)
+            
+            sub_decoder_mask = tf.concat(sub_decoder_mask, axis=0)
+            decoder_mask.append(sub_decoder_mask)
+        
+        encoder_output = tf.concat(encoder_output, axis=0)
+        decoder_input = tf.concat(decoder_input, axis=0)
+        decoder_mask = tf.concat(decoder_mask, axis=0)
+               
         return {
-            'encoder_input': encoder_input,
+            'encoder_output': encoder_output,
             'decoder_input': decoder_input,
+            'decoder_mask': decoder_mask,
         }
+        
