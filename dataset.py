@@ -40,7 +40,8 @@ class ImageCaptionGenerator(Sequence):
     def __getitem__(self,index): # Generate one batch of data
     
         batch = self.df.iloc[index * self.batch_size:(index + 1) * self.batch_size,:]
-        dataloaded = self.__get_data(batch)        
+        print('batch', batch)        
+        dataloaded = self.__get_data(batch)
         return dataloaded
     
     def __get_data(self,batch): # Generate data containing batch_size samples
@@ -54,10 +55,11 @@ class ImageCaptionGenerator(Sequence):
             feature = self.features[image][0]
             sub_decoder_mask = []
             
-            
+            enc_out = tf.constant([feature], dtype=tf.float32)
+            encoder_output.append(enc_out)
+              
             captions = batch.loc[batch[self.X_col]==image, self.y_col].tolist()
             for caption in captions:
-                enc_out = tf.constant([feature], dtype=tf.float32)
                 dec_input = tf.constant(self.tokenizer.encode(caption).ids, dtype=tf.int64)
                 
                 dec_num_padding_tokens = self.max_length - dec_input.shape[0]
@@ -70,7 +72,6 @@ class ImageCaptionGenerator(Sequence):
                 dec_lookahead_mask = look_ahead_mask(self.max_length)
                 dec_mask = tf.maximum(dec_padding_mask, dec_lookahead_mask)
                 
-                encoder_output.append(enc_out)
                 decoder_input.append(dec_input)
                 sub_decoder_mask.append(dec_mask)
             
