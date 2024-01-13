@@ -22,12 +22,12 @@ class PositionalEncoding(layers.Layer):
         self.positional_encoding = self.positional_encoding()
         
     def positional_encoding(self):
-        pe = tf.zeros((self.seq_len, self.d_model))
-        position = tf.range(0, self.seq_len, dtype=tf.float32)[:, tf.newaxis] #(seq_len, 1)
-        div_term = tf.exp(tf.range(0, self.d_model, 2, dtype=tf.float32)*(-tf.math.log(10000.0)/self.d_model))
-        pe[:, 0::2] = tf.sin(position*div_term)
-        pe[:, 1::2] = tf.cos(position*div_term)
-        pe = pe[tf.newaxis, ...]
+        pe = np.zeros((self.seq_len, self.d_model))
+        position = np.arange(0, self.seq_len, dtype=np.float32)[:, np.newaxis] #(seq_len, 1)
+        div_term = np.exp(np.arange(0, self.d_model, 2, dtype=np.float32)*(-tf.math.log(10000.0)/self.d_model))
+        pe[:, 0::2] = np.sin(position*div_term)
+        pe[:, 1::2] = np.cos(position*div_term)
+        pe = pe[np.newaxis, ...]
         self.pe = tf.cast(pe, tf.float32) #Q: is that savable in the model?
         
     def call(self, x):
@@ -38,7 +38,7 @@ class LayerNormalization(layers.Layer):
     def __init__(self, d_model, eps=1e-6):
         super().__init__()
         self.eps = eps
-        self.alpha = self.add_weight(name='alpha', shape=(d_model,), initializer='ones', trainbable=True)
+        self.alpha = self.add_weight(name='alpha', shape=(d_model,), initializer='ones', trainable=True)
         self.bias = self.add_weight(name='bias', shape=(d_model,), initializer='ones', trainable=True)
         
     def call(self, x):
@@ -130,20 +130,25 @@ class DecoderBlock(layers.Layer):
         return x
     
 class Decoder(layers.Layer):
-    def __init__(self, d_model, layers):
+    def __init__(self, d_model, embed, pos, layers, proj):
         super().__init__()
         self.layers = layers
+        self.embed = embed
+        self.pos = pos
         self.norm = LayerNormalization(d_model)
+        self.proj = proj #intergrate into the decoder block?
         
     def call(self, x, encoder_output, decoder_mask):
+        x = self.embed(x)
+        x = self.pos(x)
         for layer in self.layers:
             x = layer(x, encoder_output, decoder_mask)    
-        return self.norm(x)
+        return self.proj(self.norm(x))
     
 class ProjectionLayer(layers.Layer):
     def __init__(self, d_model, vocab_size):
         super().__init__()
-        self.proj = layers.Dense(d_model, vocab_size)
+        self.proj = layers.Dense(vocab_size)
         
     def forward(self, x):
         return self.proj(x)
@@ -174,9 +179,9 @@ def build_decoder(vocab_size, seq_len, d_model=512, num_hiddens=6, num_heads=8, 
         
         decoder_blocks.append(decoder_block)
         
-    decoder = Decoder(d_model, decoder_blocks)
+    proj = ProjectionLayer(d_model, vocab_size)
+    decoder = Decoder(d_model, embed, pos, decoder_blocks, proj)
     
-    # projection_layer = ProjectionLayer(d_model, vocab_size) #TODO move it to training process
     for p in decoder.trainable_variables:
         if p.shape.rank > 1:
             tf.keras.initializers.glorot_uniform()(p)
