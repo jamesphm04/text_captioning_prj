@@ -50,16 +50,15 @@ class ImageCaptionDataset(Sequence):
         label = []
         
         images = batch[self.X_col].tolist()
-        print('++++++++',images)
         for image in images:
             feature = self.features[image][0]
             sub_decoder_mask = []
-            
-            enc_out = tf.constant([feature], dtype=tf.float32)
-            encoder_output.append(enc_out)
               
             captions = batch.loc[batch[self.X_col]==image, self.y_col].tolist()
             for caption in captions:
+                #encoder_output
+                enc_out = tf.constant([feature], dtype=tf.float32)
+                encoder_output.append(enc_out)
                 #decoder input 
                 dec_input = tf.constant(self.tokenizer.encode(caption).ids, dtype=tf.int64)
                 dec_num_padding_tokens = self.max_length - dec_input.shape[0] - 1

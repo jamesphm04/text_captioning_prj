@@ -2,13 +2,13 @@ from pathlib import Path
 
 def get_config():
     return {
-        "batch_size": 10,
-        "num_epochs": 100,
+        "batch_size": 8,
+        "num_epochs": 10,
         "lr": 0.001,
         "max_length": 40,
-        "d_model": 512,
+        "d_model": 32,
         "num_heads": 8,
-        "d_ff": 2048,
+        "d_ff": 128,
         "dropout": 0.1,
         "datasource": 'flickr8k',
         "model_folder": "weights",

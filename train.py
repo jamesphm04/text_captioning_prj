@@ -1,13 +1,49 @@
 from decoder import build_decoder
 from config import get_config, get_weights_file_path, latest_weights_file_path
 from data_utils import get_ds
+from tqdm import tqdm 
 
 import tensorflow as tf
 import numpy as np 
 
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.losses import SparseCategoricalCrossentropy
+from tensorflow.keras.losses import categorical_crossentropy
 
+
+class CrossEntropyLoss(tf.keras.losses.Loss):
+    def __init__(self, ignore_index, label_smoothing, **kwards):
+        super().__init__(**kwards)
+        self.ignore_index = ignore_index
+        self.label_smoothing = label_smoothing
+    
+    def call(self, y_true, y_pred):
+        mask = tf.not_equal(y_true, self.ignore_index)
+        num_class = y_pred.shape[-1]
+        y_true_smoothed = tf.one_hot(y_true, num_class)
+        y_true_smoothed = y_true_smoothed * (1 - self.label_smoothing) + self.label_smoothing / num_class
+        
+        loss = categorical_crossentropy(y_true_smoothed, y_pred)
+        
+        #apply the mask 
+        loss = loss * tf.cast(mask, loss.dtype)
+        
+        #average the loss over non-masked positions
+        loss = tf.reduce_sum(loss) / tf.reduce_sum(tf.cast(mask, loss.dtype))
+        
+        return loss
+
+def train_step(decoder_input, encoder_output, decoder_mask, label, optimizer, loss_fn, model, vocab_size, pad_id=1):
+    with tf.GradientTape() as tape:
+        output = model(decoder_input, encoder_output, decoder_mask)
+        flat_output = tf.reshape(output, (-1, vocab_size))
+        flat_label = tf.reshape(label, (-1))
+        
+        
+        loss = loss_fn(flat_label, flat_output)
+        
+    gradients = tape.gradient(loss, model.trainable_variables)
+    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+    return loss
 
 def train(config):
     device = '/gpu:0' if tf.config.experimental.list_physical_devices('GPU') else '/cpu:0'
@@ -35,28 +71,28 @@ def train(config):
     else:
         print('No weights found')
         
-    loss_fn = SparseCategoricalCrossentropy(ignore_class=tokenizer.token_to_id('[PAD]')) #TODO label_smoothing=0.1 ?
+    loss_fn = CrossEntropyLoss(ignore_index=tokenizer.token_to_id('[PAD]'), label_smoothing=0.1) #TODO label_smoothing=0.1 ?
     
-    @tf.function
-    def train_step(decoder_input, encoder_output, decoder_mask, label):
-        with tf.GradientTape() as tape:
-            output = model(decoder_input, encoder_output, decoder_mask)
-            loss = loss_fn(label, output, sample_weight=tf.cast(tf.math.not_equal(label, tokenizer.token_to_id('[PAD]')), tf.float32))
-            
-        gradients = tape.gradient(loss, model.trainable_variables)
-        optimizer.apply_gradient(zip(gradients, model.trainable_variables))
-        return loss
+
+    
+    train_batch_iterator = tqdm(train_dataloader, desc='Training', dynamic_ncols=True)
     
     for epoch in range(initial_epoch, config['num_epochs']):
-        # model.reset_states()
-        for batch in train_dataloader:
+        # model.reset_states() #TODO is this needed?      
+        for batch in train_batch_iterator:
             decoder_input = batch['decoder_input']
             encoder_output = batch['encoder_output']
             decoder_mask = batch['decoder_mask']
             label = batch['label']
+            loss = train_step(decoder_input, encoder_output, decoder_mask, label, optimizer, loss_fn, model, tokenizer.get_vocab_size())
+            train_batch_iterator.set_postfix({'loss': f'{loss.numpy():6.3f}'})
+            global_step += 1
             
-            print('label:', label)
-            
+                
+        
+        if epoch % 1 == 0:
+            model_filename = get_weights_file_path(config, f'{epoch:02d}')
+            model.save(model_filename)
             
 # if __name__ == '__main__':
 #     config = get_config()

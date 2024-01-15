@@ -31,7 +31,7 @@ class PositionalEncoding(layers.Layer):
         self.pe = tf.cast(pe, tf.float32) #Q: is that savable in the model?
         
     def call(self, x):
-        x = x + self.pe[:, tf.shape(x)[1], :]
+        x = x + self.pe[:, :tf.shape(x)[1], :]
         return self.dropout(x)
     
 class LayerNormalization(layers.Layer):
@@ -78,12 +78,10 @@ class MultiHeadAttention(layers.Layer):
     @staticmethod
     def attention(query, key, value, mask, dropout: layers.Dropout):
         d_k = query.shape[-1]
-        
-        attention_scores = tf.matmul(query, key, transpose_b=True)
-        
+        key_trans = tf.transpose(key, perm=[0, 1, 3, 2])
+        attention_scores = tf.matmul(query, key_trans) / tf.math.sqrt(tf.cast(d_k, tf.float32))
         if mask is not None:
-            attention_scores = tf.where(mask == 0, -1e9, attention_scores)
-            
+            attention_scores = tf.where(tf.expand_dims(tf.equal(mask, 0), axis=1), tf.constant(-1e9, dtype=tf.float32), attention_scores)
         attention_scores = tf.nn.softmax(attention_scores, axis=-1)
         if dropout is not None:
             attention_scores = dropout(attention_scores)
@@ -125,7 +123,7 @@ class DecoderBlock(layers.Layer):
         
     def call(self, x, encoder_output, decoder_mask):
         x = self.residual_connections[0](x, lambda x: self.self_attention_block(x, x, x, decoder_mask))
-        x = self.residual_connections[1](x, lambda x: self.cross_attention_block(x, encoder_output, encoder_output))
+        x = self.residual_connections[1](x, lambda x: self.cross_attention_block(x, encoder_output, encoder_output, None))
         x = self.residual_connections[2](x, self.feed_forward_block)
         return x
     
@@ -142,7 +140,8 @@ class Decoder(layers.Layer):
         x = self.embed(x)
         x = self.pos(x)
         for layer in self.layers:
-            x = layer(x, encoder_output, decoder_mask)    
+            x = layer(x, encoder_output, decoder_mask)
+        
         return self.proj(self.norm(x))
     
 class ProjectionLayer(layers.Layer):
@@ -150,7 +149,7 @@ class ProjectionLayer(layers.Layer):
         super().__init__()
         self.proj = layers.Dense(vocab_size)
         
-    def forward(self, x):
+    def call(self, x):
         return self.proj(x)
     
 def build_decoder(vocab_size, seq_len, d_model=512, num_hiddens=6, num_heads=8, dropout=0.1, d_ff=2048) -> Decoder:
