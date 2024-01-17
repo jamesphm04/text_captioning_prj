@@ -98,14 +98,9 @@ def train(config):
             model.save(model_filename)
             
 def run_validation(model, val_batch_iterator, tokenizer, max_length, print_msg, global_step, num_examples=2):
-    print('run_validation')
     model.trainable = False
     count = 0
     
-    
-    source_imgs = []
-    tgt_captions = []
-    predicted_captions = []
     
     for batch in val_batch_iterator:
         count += 1
@@ -116,18 +111,15 @@ def run_validation(model, val_batch_iterator, tokenizer, max_length, print_msg, 
         
         model_out = greedy_decode(model, encoder_output, tokenizer, max_length)
         
-        encoder_output = batch['encoder_output'][0]
-        label = batch['label'][0]
+        src_img = batch['src_imgs'][0]
+        label = batch['label'][0] # for visualization
         model_out_text = tokenizer.decode(model_out)
-        
-        source_imgs.append(encoder_output)
-        tgt_captions.append(label)
-        predicted_captions.append(model_out_text)
+        tgt_caption = batch['tgt_captions'][0]
         
         #print the source, target and predicted captions
         print_msg('-' * 80)
-        print_msg(f"{f'SOURCE: ':>12}{encoder_output}")
-        print_msg(f"{f'TARGET: ':>12}{label}")
+        print_msg(f"{f'SOURCE: ':>12}{src_img}")
+        print_msg(f"{f'TARGET: ':>12}{tgt_caption}")
         print_msg(f"{f'PREDICTED: ':>12}{model_out_text}")
         
         if count == num_examples:
@@ -135,7 +127,6 @@ def run_validation(model, val_batch_iterator, tokenizer, max_length, print_msg, 
             break
 
 def greedy_decode(model, encoder_output, tokenizer, max_length):
-    print('greedy_decode')
     sos_idx = tokenizer.token_to_id('[SOS]')
     eos_idx = tokenizer.token_to_id('[EOS]')
     
@@ -147,7 +138,6 @@ def greedy_decode(model, encoder_output, tokenizer, max_length):
             break
         decoder_mask = look_ahead_mask(decoder_input.shape[1])
         #calculate output
-        print(f'decoder_mask: {decoder_mask.shape}')
         out = model(decoder_input, encoder_output, tf.expand_dims(decoder_mask, axis=0))
         # get the token has the highest probability
         next_token = tf.argmax(out[:, -1], axis=-1)
@@ -156,6 +146,6 @@ def greedy_decode(model, encoder_output, tokenizer, max_length):
             break
     return decoder_input.numpy().squeeze()
 
-# if __name__ == '__main__':
-#     config = get_config()
-#     train(config)
+if __name__ == '__main__':
+    config = get_config()
+    train(config)

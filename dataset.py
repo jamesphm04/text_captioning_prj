@@ -48,10 +48,15 @@ class ImageCaptionDataset(Sequence):
         decoder_input = []
         decoder_mask = []
         label = []
+        src_imgs = []
+        tgt_captions = []
         
         images = batch[self.X_col].tolist()
         for image in images:
+            
             feature = self.features[image][0]
+            src_imgs.append(image)
+            
             sub_decoder_mask = []
               
             captions = batch.loc[batch[self.X_col]==image, self.y_col].tolist()
@@ -83,6 +88,7 @@ class ImageCaptionDataset(Sequence):
                 decoder_input.append(dec_input)
                 label.append(lab)
                 sub_decoder_mask.append(dec_mask)
+                tgt_captions.append(caption)
             
             sub_decoder_mask = tf.concat(sub_decoder_mask, axis=0)
             decoder_mask.append(sub_decoder_mask)
@@ -96,6 +102,8 @@ class ImageCaptionDataset(Sequence):
             'encoder_output': encoder_output,
             'decoder_input': decoder_input,
             'decoder_mask': decoder_mask,
-            'label': label
+            'label': label,
+            'src_imgs': src_imgs,
+            'tgt_captions': tgt_captions
         }
         
