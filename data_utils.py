@@ -97,7 +97,7 @@ def get_ds(config):
     val_features = extract_features(df_val['image'].values.tolist())
     # get datasets
     train_dataset = ImageCaptionDataset(df_train, 'image', 'caption', config['batch_size'], tokenizer, config['max_length'], train_features)
-    val_dataset = ImageCaptionDataset(df_val, 'image', 'caption', config['batch_size'], tokenizer, config['max_length'], val_features)
+    val_dataset = ImageCaptionDataset(df_val, 'image', 'caption', 1, tokenizer, config['max_length'], val_features)
     
     # Find the maximum length of each sentence in the target sentence
     max_length = 0

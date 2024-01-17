@@ -6,6 +6,8 @@ from tqdm import tqdm
 import tensorflow as tf
 import numpy as np 
 
+from dataset import look_ahead_mask
+
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import categorical_crossentropy
 
@@ -76,6 +78,8 @@ def train(config):
 
     
     train_batch_iterator = tqdm(train_dataloader, desc='Training', dynamic_ncols=True)
+    val_batch_iterator = tqdm(val_dataloader, desc='Validating', dynamic_ncols=True)
+    
     
     for epoch in range(initial_epoch, config['num_epochs']):
         # model.reset_states() #TODO is this needed?      
@@ -87,13 +91,71 @@ def train(config):
             loss = train_step(decoder_input, encoder_output, decoder_mask, label, optimizer, loss_fn, model, tokenizer.get_vocab_size())
             train_batch_iterator.set_postfix({'loss': f'{loss.numpy():6.3f}'})
             global_step += 1
+            run_validation(model, val_batch_iterator, tokenizer, config['max_length'], lambda msg: train_batch_iterator.write(msg), global_step)
             
-                
-        
         if epoch % 1 == 0:
             model_filename = get_weights_file_path(config, f'{epoch:02d}')
             model.save(model_filename)
             
+def run_validation(model, val_batch_iterator, tokenizer, max_length, print_msg, global_step, num_examples=2):
+    print('run_validation')
+    model.trainable = False
+    count = 0
+    
+    
+    source_imgs = []
+    tgt_captions = []
+    predicted_captions = []
+    
+    for batch in val_batch_iterator:
+        count += 1
+        
+        encoder_output = batch['encoder_output']
+        
+        assert encoder_output.shape[0] == 1, 'Batch size must be 1 for validation'
+        
+        model_out = greedy_decode(model, encoder_output, tokenizer, max_length)
+        
+        encoder_output = batch['encoder_output'][0]
+        label = batch['label'][0]
+        model_out_text = tokenizer.decode(model_out)
+        
+        source_imgs.append(encoder_output)
+        tgt_captions.append(label)
+        predicted_captions.append(model_out_text)
+        
+        #print the source, target and predicted captions
+        print_msg('-' * 80)
+        print_msg(f"{f'SOURCE: ':>12}{encoder_output}")
+        print_msg(f"{f'TARGET: ':>12}{label}")
+        print_msg(f"{f'PREDICTED: ':>12}{model_out_text}")
+        
+        if count == num_examples:
+            print_msg('-' * 80)
+            break
+
+def greedy_decode(model, encoder_output, tokenizer, max_length):
+    print('greedy_decode')
+    sos_idx = tokenizer.token_to_id('[SOS]')
+    eos_idx = tokenizer.token_to_id('[EOS]')
+    
+    #initialize the decoder input with sos_idx
+    decoder_input = tf.constant([[sos_idx]], dtype=tf.int64)
+    
+    while True:
+        if decoder_input.shape[1] == max_length:
+            break
+        decoder_mask = look_ahead_mask(decoder_input.shape[1])
+        #calculate output
+        print(f'decoder_mask: {decoder_mask.shape}')
+        out = model(decoder_input, encoder_output, tf.expand_dims(decoder_mask, axis=0))
+        # get the token has the highest probability
+        next_token = tf.argmax(out[:, -1], axis=-1)
+        decoder_input = tf.concat([decoder_input, tf.expand_dims(next_token, axis=1)], axis=1)
+        if next_token == eos_idx:
+            break
+    return decoder_input.numpy().squeeze()
+
 # if __name__ == '__main__':
 #     config = get_config()
 #     train(config)
